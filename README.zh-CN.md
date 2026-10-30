@@ -1,6 +1,9 @@
 # taao
 
-![Crates.io Version](https://img.shields.io/crates/v/taao) ![docs.rs](https://img.shields.io/docsrs/taao) ![Crates.io License](https://img.shields.io/crates/l/taao) [![Badge showing this repository's Rust code analysis](https://ferris.love/badge/LGY07/taao?variant=mini)](https://ferris.love/LGY07/taao)
+[![Crates.io Version](https://img.shields.io/crates/v/taao)](https://crates.io/crates/taao)
+[![docs.rs](https://img.shields.io/docsrs/taao)](https://docs.rs/taao)
+![Crates.io License](https://img.shields.io/crates/l/taao)
+[![Badge showing this repository's Rust code analysis](https://ferris.love/badge/LGY07/taao?variant=mini)](https://ferris.love/LGY07/taao)
 
 一个将 Rust 异步任务接入 tao 或 winit 事件循环的库。
 
@@ -34,7 +37,8 @@ taao = { version = "0.1", features = ["event"] }
 taao = { version = "0.1", default-features = false, features = ["winit", "event"] }
 ```
 
-`tao` 与 `winit` 必须且只能选择一个。若要收集 `tracing` 日志，在依赖配置中加入 `tracing` feature，并在应用中安装 tracing subscriber。
+`tao` 与 `winit` 必须且只能选择一个。若要收集 `tracing` 日志，在依赖配置中加入 `tracing` feature，并在应用中安装 tracing
+subscriber。
 
 ## 运行 Future
 
@@ -47,7 +51,8 @@ let value = event_loop.block_on(async { 42 })?;
 assert_eq!(value, 42);
 ```
 
-`block_on` 驱动事件循环，并在 Future 完成后返回。Future 被唤醒时，库会通过事件循环代理通知事件循环线程继续 poll。`block_on` 不会将后端事件转发给调用方。
+`block_on` 驱动事件循环，并在 Future 完成后返回。Future 被唤醒时，库会通过事件循环代理通知事件循环线程继续 poll。`block_on`
+不会将后端事件转发给调用方。
 
 ## 接收事件和提交操作
 
@@ -64,9 +69,11 @@ event_loop.block_on_with_events(async |mut event| {
 })?;
 ```
 
-事件流包含后端各自提供的事件，Tao 和 winit 暴露的事件集合并不相同。驱动 Future 所用的内部 user event 不会传给调用方；Tao 还会过滤 `NewEvents`、`MainEventsCleared`、`RedrawEventsCleared` 和 `LoopDestroyed` 等循环阶段事件。
+事件流包含后端各自提供的事件，Tao 和 winit 暴露的事件集合并不相同。驱动 Future 所用的内部 user event 不会传给调用方；Tao
+还会过滤 `NewEvents`、`MainEventsCleared`、`RedrawEventsCleared` 和 `LoopDestroyed` 等循环阶段事件。
 
-`Event::submit` 可在事件循环线程上执行操作并异步取得结果。Tao 的闭包接收 `EventLoopWindowTarget` 和可变的 `ControlFlow`；winit 的闭包接收 `ActiveEventLoop`。例如，Tao 后端可以这样创建窗口：
+`Event::submit` 可在事件循环线程上执行操作并异步取得结果。Tao 的闭包接收 `EventLoopWindowTarget` 和可变的 `ControlFlow`
+；winit 的闭包接收 `ActiveEventLoop`。例如，Tao 后端可以这样创建窗口：
 
 ```rust,ignore
 let window = event
