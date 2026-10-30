@@ -26,7 +26,7 @@ impl Future for WakeFromThread {
     }
 }
 
-#[cfg(all(feature = "tao", not(any(target_os = "ios", target_os = "macos"))))]
+#[cfg(all(feature = "tao", any(target_os = "linux", target_os = "windows")))]
 fn tao_event_loop() -> tao::event_loop::EventLoop<()> {
     #[cfg(target_os = "windows")]
     {
@@ -36,16 +36,17 @@ fn tao_event_loop() -> tao::event_loop::EventLoop<()> {
         builder.with_any_thread(true);
         builder.build()
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
-        tao::event_loop::EventLoop::new()
+        use tao::platform::unix::EventLoopBuilderExtUnix;
+
+        let mut builder = tao::event_loop::EventLoopBuilder::new();
+        builder.with_any_thread(true);
+        builder.build()
     }
 }
 
-#[cfg(all(
-    feature = "winit",
-    not(any(target_os = "ios", target_os = "macos", target_arch = "wasm32"))
-))]
+#[cfg(all(feature = "winit", any(target_os = "linux", target_os = "windows")))]
 fn winit_event_loop() -> winit::event_loop::EventLoop<()> {
     #[cfg(target_os = "windows")]
     {
@@ -55,13 +56,17 @@ fn winit_event_loop() -> winit::event_loop::EventLoop<()> {
         builder.with_any_thread(true);
         builder.build().unwrap()
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
-        winit::event_loop::EventLoop::new().unwrap()
+        use winit::platform::x11::EventLoopBuilderExtX11;
+
+        let mut builder = winit::event_loop::EventLoop::builder();
+        builder.with_x11().with_any_thread(true);
+        builder.build().unwrap()
     }
 }
 
-#[cfg(all(feature = "tao", not(any(target_os = "ios", target_os = "macos"))))]
+#[cfg(all(feature = "tao", any(target_os = "linux", target_os = "windows")))]
 #[test]
 fn tao_event_loop_wakes_futures_and_runs_submitted_operations() {
     let mut event_loop = tao_event_loop();
@@ -112,10 +117,7 @@ fn tao_event_loop_wakes_futures_and_runs_submitted_operations() {
     );
 }
 
-#[cfg(all(
-    feature = "winit",
-    not(any(target_os = "ios", target_os = "macos", target_arch = "wasm32"))
-))]
+#[cfg(all(feature = "winit", any(target_os = "linux", target_os = "windows")))]
 #[test]
 fn winit_event_loop_wakes_futures_and_runs_submitted_operations() {
     let mut event_loop = winit_event_loop();
