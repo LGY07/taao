@@ -1,8 +1,8 @@
 use async_executor::Executor;
-use futures_lite::io::AsyncWriteExt;
 use futures_lite::StreamExt;
-use taao::event::EventKind;
+use futures_lite::io::AsyncWriteExt;
 use taao::EventLoopBlockOn;
+use taao::event::EventKind;
 use tao::dpi::LogicalSize;
 use tao::event::{Event as TaoEvent, WindowEvent};
 use tao::event_loop::EventLoop;
