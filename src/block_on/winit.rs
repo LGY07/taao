@@ -69,6 +69,10 @@ impl<F: Future> Driver<F> {
     }
 
     fn poll(&mut self, event_loop: &ActiveEventLoop) {
+        if self.output.is_some() {
+            return;
+        }
+
         self.wake.notified.store(false, Ordering::Release);
         let mut context = Context::from_waker(&self.waker);
         if let Poll::Ready(output) = self.future.as_mut().poll(&mut context) {
