@@ -110,7 +110,7 @@ jobs:
         run: cargo test --no-default-features --features "${{ matrix.features }}"
 
   docs:
-    name: Documentation (${{ matrix.os }}, ${{ matrix.features }})
+    name: Documentation (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -118,14 +118,15 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-        features:
-          - tao,event,tracing
-          - winit,event,tracing
     env:
       RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          # #![feature(doc_cfg)] (shows "Available for crate feature ... only")
+          # needs an nightly toolchain
+          toolchain: nightly-2026-10-30
       - name: Install Linux GUI dependencies
         if: runner.os == 'Linux'
         run: |
@@ -147,4 +148,7 @@ jobs:
             libxkbcommon-x11-dev \
             libxrandr-dev \
             pkg-config
-      - run: cargo doc --no-deps --no-default-features --features "${{ matrix.features }}"
+      - name: Building documents
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
+        run: cargo doc --no-deps --all-features --package taao

@@ -1,3 +1,60 @@
+//! Event streams and event-loop operations, available with the `event` feature.
+//!
+//! With the feature enabled,
+//! [`EventLoopBlockOn::block_on_with_events`](crate::EventLoopBlockOn::block_on_with_events)
+//! passes the future an [`Event`] handle. [`Event`] implements
+//! [`futures_core::Stream`](futures_lite::Stream)
+//! with item type [`EventKind`], yielding backend events as they arrive. Operations that
+//! must run on the event-loop thread — creating windows, changing control flow, etc. — can
+//! be submitted with [`Event::submit`] and are executed there, with the result sent back
+//! to the future.
+//!
+//! The stream is bounded to 256 events; when it is full, each new event overwrites the
+//! oldest queued one. [`Event::dropped_events`] reports how many events have been
+//! overwritten so far.
+//!
+//! # Re-exports
+//!
+//! This module re-exports [`Event`] and [`EventKind`] from [`winit`] **or** [`tao`] based on
+//! the enabled feature, at your convenience. You can always use `taao::event::Event`
+//! regardless of the backend.
+//!
+//! # Example
+//!
+//! ```no_run
+//! # #[cfg(all(feature = "event", feature = "tao"))]
+//! # fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! use futures_lite::StreamExt;
+//! use taao::EventLoopBlockOn;
+//! use taao::event::EventKind;
+//!
+//! let mut event_loop = tao::event_loop::EventLoop::new();
+//! event_loop.block_on_with_events(async |mut events| -> Result<(), Box<dyn std::error::Error>> {
+//!     while let Some(kind) = events.next().await {
+//!         if matches!(kind, EventKind::Tao(tao::event::Event::WindowEvent { .. })) {
+//!             // Create a window on the event-loop thread.
+//!             let window = events
+//!                 .submit(|target, _control_flow| {
+//!                     tao::window::WindowBuilder::new().build(target)
+//!                 })
+//!                 .await??;
+//!             # let _ = window;
+//!         }
+//!     }
+//!     Ok(())
+//! })??;
+//! # Ok(())
+//! # }
+//! # fn main() {
+//! #     #[cfg(all(feature = "event", feature = "tao"))]
+//! #     let _ = run();
+//! # }
+//! ```
+//!
+//! The stream carries backend-specific event values; Tao and winit do not expose identical
+//! event sets. Events that taao itself uses to wake the future are consumed by the driver
+//! and never delivered.
+
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -9,16 +66,20 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 #[cfg(feature = "tao")]
-pub(crate) mod tao;
+pub mod tao;
 #[cfg(feature = "winit")]
-pub(crate) mod winit;
+pub mod winit;
 
+// Docs.rs shows `Event` and `EventKind` from Tao
 #[cfg(feature = "tao")]
 pub use tao::{Event, EventKind};
-#[cfg(feature = "winit")]
+
+#[cfg(all(feature = "winit", not(docsrs)))]
 pub use winit::{Event, EventKind};
 
-/// The event loop stopped before a submitted operation could complete.
+/// Error returned by [`Event::submit`] when the submitted operation cannot be completed.
+///
+/// This happens when the event loop stops before the operation gets a chance to run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SubmitError;
 

@@ -1,4 +1,53 @@
-#[cfg(all(feature = "tao", feature = "winit"))]
+//! Run futures on a Tao or winit event-loop thread.
+//!
+//! taao bridges the [Tao](https://github.com/tauri-apps/tao) or [winit](https://docs.rs/winit)
+//! event loop and async Rust: it drives the event loop on the current thread while polling a
+//! future, and notifies the event-loop thread through the event-loop proxy whenever the future
+//! is woken.
+//!
+//! Exactly one backend feature must be enabled: `tao` (default) or `winit`.
+//!
+//! # Running a future
+//!
+//! Call [`EventLoopBlockOn::block_on`] on the backend event loop; it returns the future's
+//! output once the future completes:
+//!
+//! ```no_run
+//! # #[cfg(feature = "tao")]
+//! # fn run() -> Result<(), taao::BlockOnError> {
+//! use taao::EventLoopBlockOn;
+//!
+//! let mut event_loop = tao::event_loop::EventLoop::new();
+//! let answer = event_loop.block_on(async { 42 })?;
+//! assert_eq!(answer, 42);
+//! # Ok(())
+//! # }
+//! # fn main() {
+//! #     #[cfg(feature = "tao")]
+//! #     let _ = run();
+//! # }
+//! ```
+//!
+//! With the `winit` feature, the same call works on the winit event loop.
+//!
+//! # Events and event-loop operations
+//!
+//! With the `event` feature, [`EventLoopBlockOn::block_on_with_events`] additionally hands
+//! the future an [`event::Event`]: a stream of backend events plus [`event::Event::submit`]
+//! for running closures on the event-loop thread. See the [`event`] module.
+//!
+//! # Features
+//!
+//! | Feature   | Description                                                         | Default |
+//! |-----------|---------------------------------------------------------------------|---------|
+//! | `tao`     | Use the Tao backend                                                 | Yes     |
+//! | `winit`   | Use the winit backend                                               | No      |
+//! | `event`   | Enable the event stream and [`Event::submit`](event::Event::submit) | No      |
+//! | `tracing` | Enable diagnostic logging                                           | No      |
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
+#[cfg(all(feature = "tao", feature = "winit", not(docsrs)))]
 compile_error!("features `tao` and `winit` are mutually exclusive");
 
 #[cfg(not(any(feature = "tao", feature = "winit")))]
@@ -13,90 +62,90 @@ use std::future::Future;
 #[cfg(feature = "event")]
 use std::ops::AsyncFnOnce;
 
-/// Extension methods for running futures on the selected windowing backend's event loop.
-///
-/// Import this trait to call [`EventLoopBlockOn::block_on`] on an event loop.
-///
-/// This trait is unavailable on iOS and Web, where the selected backend cannot
-/// synchronously return from its event loop.
-///
-/// # Example
-///
-/// ```no_run
-/// #[cfg(feature = "tao")]
-/// fn run_example() -> Result<(), taao::BlockOnError> {
-///     use taao::EventLoopBlockOn;
-///     let mut event_loop = tao::event_loop::EventLoop::new();
-///     let value = event_loop.block_on(async { 42 })?;
-///     assert_eq!(value, 42);
-///     Ok(())
-/// }
-///
-/// #[cfg(feature = "winit")]
-/// fn run_example() -> Result<(), taao::BlockOnError> {
-///     use taao::EventLoopBlockOn;
-///     let mut event_loop = winit::event_loop::EventLoop::new().unwrap();
-///     let value = event_loop.block_on(async { 42 })?;
-///     assert_eq!(value, 42);
-///     Ok(())
-/// }
-/// ```
 #[cfg(any(
     all(feature = "tao", not(target_os = "ios")),
     all(feature = "winit", not(any(target_os = "ios", target_arch = "wasm32")))
 ))]
+/// Extension trait that runs a future to completion on the backend's event-loop thread.
+///
+/// Implemented for [`tao::event_loop::EventLoop<()>`](tao::event_loop::EventLoop) with the `tao` feature and for
+/// [`winit::event_loop::EventLoop<()>`](winit::event_loop::EventLoop) with the `winit` feature. Both implementations are
+/// unavailable on iOS, where the platform must drive the event loop, and the winit one is
+/// additionally unavailable for WebAssembly.
 pub trait EventLoopBlockOn {
-    /// Runs a future on the event loop and returns its output when it completes.
+    /// Runs `future` on the event-loop thread and returns its output.
     ///
-    /// The event loop must use `()` as its user event type, since user events are
-    /// used to wake the future after it returns `Poll::Pending`.
+    /// While the future is pending, the event loop keeps dispatching backend events.
+    /// Whenever the future wakes its task, taao sends a user event through the event-loop
+    /// proxy so the future is polled again on the event-loop thread.
     ///
-    /// This method runs its own event loop driver and does not forward events.
-    /// Returns [`BlockOnError::EventLoopExited`] if the loop exits first.
-    fn block_on<F>(&mut self, future: F) -> Result<F::Output, BlockOnError>
-    where
-        F: Future;
-
-    /// Runs an async handler with an event stream and event-loop submission handle.
+    /// Returns [`BlockOnError::EventLoopExited`] if the event loop exits before the future
+    /// completes, or [`BlockOnError::Backend`] if the backend rejects the request to run
+    /// the loop.
     ///
     /// # Example
     ///
     /// ```no_run
-    /// #[cfg(all(feature = "tao", feature = "event"))]
-    /// fn receive_tao_event() -> Result<(), taao::BlockOnError> {
-    ///     use futures_lite::StreamExt;
-    ///     use taao::EventLoopBlockOn;
-    ///     let mut event_loop = tao::event_loop::EventLoop::new();
-    ///     event_loop.block_on_with_events(async |mut event| {
-    ///         let _ = event.next().await;
-    ///     })?;
-    ///     Ok(())
-    /// }
+    /// # #[cfg(feature = "tao")]
+    /// # fn run() -> Result<(), taao::BlockOnError> {
+    /// use taao::EventLoopBlockOn;
     ///
-    /// #[cfg(all(feature = "winit", feature = "event"))]
-    /// fn receive_winit_event() -> Result<(), taao::BlockOnError> {
-    ///     use futures_lite::StreamExt;
-    ///     use taao::EventLoopBlockOn;
-    ///     let mut event_loop = winit::event_loop::EventLoop::new().unwrap();
-    ///     event_loop.block_on_with_events(async |mut event| {
-    ///         let _ = event.next().await;
-    ///     })?;
-    ///     Ok(())
-    /// }
+    /// let mut event_loop = tao::event_loop::EventLoop::new();
+    /// let answer = event_loop.block_on(async { 42 })?;
+    /// assert_eq!(answer, 42);
+    /// # Ok(())
+    /// # }
+    /// # fn main() {
+    /// #     #[cfg(feature = "tao")]
+    /// #     let _ = run();
+    /// # }
     /// ```
-    /// Returns [`BlockOnError::EventLoopExited`] if the loop exits before the handler completes.
+    fn block_on<F>(&mut self, future: F) -> Result<F::Output, BlockOnError>
+    where
+        F: Future;
+
+    /// Runs `future` on the event-loop thread like [`block_on`](EventLoopBlockOn::block_on),
+    /// and additionally passes it an [`event::Event`] handle.
+    ///
+    /// The handle is a stream of backend events and provides
+    /// [`submit`](event::Event::submit) for running operations on the event-loop thread.
+    /// See the [`event`] module.
+    ///
+    /// Requires the `event` feature.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[cfg(all(feature = "event", feature = "tao"))]
+    /// # fn run() -> Result<(), taao::BlockOnError> {
+    /// use futures_lite::StreamExt;
+    /// use taao::EventLoopBlockOn;
+    ///
+    /// let mut event_loop = tao::event_loop::EventLoop::new();
+    /// event_loop.block_on_with_events(async |mut events| {
+    ///     while let Some(kind) = events.next().await {
+    ///         // Handle backend events here.
+    ///         # let _ = kind;
+    ///     }
+    /// })
+    /// # }
+    /// # fn main() {
+    /// #     #[cfg(all(feature = "event", feature = "tao"))]
+    /// #     let _ = run();
+    /// # }
+    /// ```
     #[cfg(feature = "event")]
     fn block_on_with_events<F, Output>(&mut self, handler: F) -> Result<Output, BlockOnError>
     where
         F: AsyncFnOnce(event::Event) -> Output;
 }
 
-/// Why an event-loop-driven future did not produce its output.
+/// Error returned when driving a future on the event-loop thread fails.
 #[derive(Debug, Eq, PartialEq)]
 pub enum BlockOnError {
-    /// The backend event loop exited before the future completed.
+    /// The event loop exited before the future completed.
     EventLoopExited,
-    /// The backend rejected the request to run its event loop.
+    /// The backend reported an error while running the event loop.
     Backend(String),
 }
 
