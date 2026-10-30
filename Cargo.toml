@@ -17,6 +17,10 @@ winit = ["dep:winit"]
 event = ["dep:async-channel", "dep:futures-lite"]
 tracing = ["dep:tracing"]
 
+[[example]]
+name = "tao_event_loop"
+required-features = ["tao", "event"]
+
 [lints.rust]
 unsafe_code = "deny"
 
@@ -26,3 +30,7 @@ futures-lite = { version = "2", optional = true }
 tao = { version = "0.37", optional = true }
 tracing = { version = "0.1", optional = true }
 winit = { version = "0.30", optional = true }
+
+[dev-dependencies]
+async-executor = "1"
+async-fs = "2"
