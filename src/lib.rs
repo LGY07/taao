@@ -19,6 +19,28 @@ use std::ops::AsyncFnOnce;
 ///
 /// This trait is unavailable on iOS and Web, where the selected backend cannot
 /// synchronously return from its event loop.
+///
+/// # Example
+///
+/// ```no_run
+/// #[cfg(feature = "tao")]
+/// fn run_example() -> Result<(), taao::BlockOnError> {
+///     use taao::EventLoopBlockOn;
+///     let mut event_loop = tao::event_loop::EventLoop::new();
+///     let value = event_loop.block_on(async { 42 })?;
+///     assert_eq!(value, 42);
+///     Ok(())
+/// }
+///
+/// #[cfg(feature = "winit")]
+/// fn run_example() -> Result<(), taao::BlockOnError> {
+///     use taao::EventLoopBlockOn;
+///     let mut event_loop = winit::event_loop::EventLoop::new().unwrap();
+///     let value = event_loop.block_on(async { 42 })?;
+///     assert_eq!(value, 42);
+///     Ok(())
+/// }
+/// ```
 #[cfg(any(
     all(feature = "tao", not(target_os = "ios")),
     all(feature = "winit", not(any(target_os = "ios", target_arch = "wasm32")))
@@ -36,6 +58,32 @@ pub trait EventLoopBlockOn {
         F: Future;
 
     /// Runs an async handler with an event stream and event-loop submission handle.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// #[cfg(all(feature = "tao", feature = "event"))]
+    /// fn receive_tao_event() -> Result<(), taao::BlockOnError> {
+    ///     use futures_lite::StreamExt;
+    ///     use taao::EventLoopBlockOn;
+    ///     let mut event_loop = tao::event_loop::EventLoop::new();
+    ///     event_loop.block_on_with_events(async |mut event| {
+    ///         let _ = event.next().await;
+    ///     })?;
+    ///     Ok(())
+    /// }
+    ///
+    /// #[cfg(all(feature = "winit", feature = "event"))]
+    /// fn receive_winit_event() -> Result<(), taao::BlockOnError> {
+    ///     use futures_lite::StreamExt;
+    ///     use taao::EventLoopBlockOn;
+    ///     let mut event_loop = winit::event_loop::EventLoop::new().unwrap();
+    ///     event_loop.block_on_with_events(async |mut event| {
+    ///         let _ = event.next().await;
+    ///     })?;
+    ///     Ok(())
+    /// }
+    /// ```
     /// Returns [`BlockOnError::EventLoopExited`] if the loop exits before the handler completes.
     #[cfg(feature = "event")]
     fn block_on_with_events<F, Output>(&mut self, handler: F) -> Result<Output, BlockOnError>
@@ -98,5 +146,22 @@ impl EventLoopBlockOn for winit::event_loop::EventLoop<()> {
         F: AsyncFnOnce(event::Event) -> Output,
     {
         block_on::winit::block_on_with_events(self, handler)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlockOnError;
+
+    #[test]
+    fn block_on_errors_have_stable_display_messages() {
+        assert_eq!(
+            BlockOnError::EventLoopExited.to_string(),
+            "event loop exited before the future completed"
+        );
+        assert_eq!(
+            BlockOnError::Backend("unavailable".to_owned()).to_string(),
+            "event loop error: unavailable"
+        );
     }
 }

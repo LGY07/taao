@@ -6,9 +6,12 @@ use std::sync::{
 };
 use std::task::{Context, Poll, Wake, Waker};
 
+#[cfg(feature = "event")]
 use async_channel::Receiver;
 use winit::application::ApplicationHandler;
-use winit::event::{DeviceEvent, Event as WinitEvent, StartCause, WindowEvent};
+#[cfg(feature = "event")]
+use winit::event::Event as WinitEvent;
+use winit::event::{DeviceEvent, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
 use winit::window::WindowId;
@@ -26,13 +29,13 @@ impl Wake for EventLoopWake {
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        if !self.notified.swap(true, Ordering::AcqRel) {
-            if let Err(error) = self.proxy.send_event(()) {
-                #[cfg(feature = "tracing")]
-                tracing::trace!(target: "taao::block_on", %error, "winit wake notification was rejected");
-                #[cfg(not(feature = "tracing"))]
-                let _ = error;
-            }
+        if !self.notified.swap(true, Ordering::AcqRel)
+            && let Err(error) = self.proxy.send_event(())
+        {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(target: "taao::block_on", %error, "winit wake notification was rejected");
+            #[cfg(not(feature = "tracing"))]
+            let _ = error;
         }
     }
 }
@@ -84,31 +87,37 @@ impl<F: Future> Driver<F> {
 }
 
 impl<F: Future> ApplicationHandler<()> for Driver<F> {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, _cause: StartCause) {
         #[cfg(feature = "event")]
-        self.send(WinitEvent::NewEvents(cause));
+        self.send(WinitEvent::NewEvents(_cause));
         self.after_callback(event_loop);
     }
 
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
+        _window_id: WindowId,
+        _event: WindowEvent,
     ) {
         #[cfg(feature = "event")]
-        self.send(WinitEvent::WindowEvent { window_id, event });
+        self.send(WinitEvent::WindowEvent {
+            window_id: _window_id,
+            event: _event,
+        });
         self.after_callback(event_loop);
     }
 
     fn device_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        device_id: winit::event::DeviceId,
-        event: DeviceEvent,
+        _device_id: winit::event::DeviceId,
+        _event: DeviceEvent,
     ) {
         #[cfg(feature = "event")]
-        self.send(WinitEvent::DeviceEvent { device_id, event });
+        self.send(WinitEvent::DeviceEvent {
+            device_id: _device_id,
+            event: _event,
+        });
         self.after_callback(event_loop);
     }
 
@@ -147,12 +156,15 @@ impl<F: Future> ApplicationHandler<()> for Driver<F> {
 #[cfg(feature = "event")]
 type EventSink = Option<crate::event::EventQueueSender<crate::event::EventKind>>;
 #[cfg(not(feature = "event"))]
-type EventSink = ();
+type EventSink = EventFeatureDisabled;
+
+#[cfg(not(feature = "event"))]
+struct EventFeatureDisabled;
 
 #[cfg(feature = "event")]
 type Operations = Option<Receiver<crate::event::winit::Operation>>;
 #[cfg(not(feature = "event"))]
-type Operations = ();
+type Operations = EventFeatureDisabled;
 
 fn empty_event_sink() -> EventSink {
     #[cfg(feature = "event")]
@@ -161,7 +173,7 @@ fn empty_event_sink() -> EventSink {
     }
     #[cfg(not(feature = "event"))]
     {
-        ()
+        EventFeatureDisabled
     }
 }
 
@@ -172,7 +184,7 @@ fn empty_operations() -> Operations {
     }
     #[cfg(not(feature = "event"))]
     {
-        ()
+        EventFeatureDisabled
     }
 }
 
@@ -203,8 +215,8 @@ where
 fn run<F>(
     event_loop: &mut EventLoop<()>,
     future: F,
-    events: EventSink,
-    operations: Operations,
+    _events: EventSink,
+    _operations: Operations,
 ) -> Result<F::Output, BlockOnError>
 where
     F: Future,
@@ -222,9 +234,9 @@ where
         wake,
         waker,
         #[cfg(feature = "event")]
-        events,
+        events: _events,
         #[cfg(feature = "event")]
-        operations,
+        operations: _operations,
     };
 
     if let Err(error) = event_loop.run_app_on_demand(&mut driver) {

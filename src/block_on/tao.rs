@@ -25,13 +25,13 @@ impl Wake for EventLoopWake {
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        if !self.notified.swap(true, Ordering::AcqRel) {
-            if let Err(error) = self.proxy.send_event(()) {
-                #[cfg(feature = "tracing")]
-                tracing::trace!(target: "taao::block_on", %error, "Tao wake notification was rejected");
-                #[cfg(not(feature = "tracing"))]
-                let _ = error;
-            }
+        if !self.notified.swap(true, Ordering::AcqRel)
+            && let Err(error) = self.proxy.send_event(())
+        {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(target: "taao::block_on", %error, "Tao wake notification was rejected");
+            #[cfg(not(feature = "tracing"))]
+            let _ = error;
         }
     }
 }
@@ -39,7 +39,10 @@ impl Wake for EventLoopWake {
 #[cfg(feature = "event")]
 type EventSink = Option<crate::event::EventQueueSender<crate::event::EventKind>>;
 #[cfg(not(feature = "event"))]
-type EventSink = ();
+type EventSink = EventFeatureDisabled;
+
+#[cfg(not(feature = "event"))]
+struct EventFeatureDisabled;
 
 fn empty_event_sink() -> EventSink {
     #[cfg(feature = "event")]
@@ -48,14 +51,14 @@ fn empty_event_sink() -> EventSink {
     }
     #[cfg(not(feature = "event"))]
     {
-        ()
+        EventFeatureDisabled
     }
 }
 
 #[cfg(feature = "event")]
 type Operations = Option<Receiver<crate::event::tao::Operation>>;
 #[cfg(not(feature = "event"))]
-type Operations = ();
+type Operations = EventFeatureDisabled;
 
 fn empty_operations() -> Operations {
     #[cfg(feature = "event")]
@@ -64,7 +67,7 @@ fn empty_operations() -> Operations {
     }
     #[cfg(not(feature = "event"))]
     {
-        ()
+        EventFeatureDisabled
     }
 }
 
@@ -133,10 +136,10 @@ where
         }
 
         #[cfg(feature = "event")]
-        if let Some(sender) = &_events {
-            if let Some(event) = crate::event::tao::from_tao(event) {
-                sender.send(event);
-            }
+        if let Some(sender) = &_events
+            && let Some(event) = crate::event::tao::from_tao(event)
+        {
+            sender.send(event);
         }
 
         if is_user_event {

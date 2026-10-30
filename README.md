@@ -68,6 +68,8 @@ event_loop.block_on_with_events(async |mut event| {
 })?;
 ```
 
+The stream carries backend-specific event values; Tao and winit do not expose identical event sets. Internal user events used to wake the future are consumed by the driver and are not included. Tao also omits loop-phase events such as `NewEvents`, `MainEventsCleared`, `RedrawEventsCleared`, and `LoopDestroyed`.
+
 `Event::submit` runs an operation on the event-loop thread and asynchronously returns its result. Tao passes an
 `EventLoopWindowTarget` and mutable `ControlFlow` to the closure; winit passes an `ActiveEventLoop`. For example, create
 a window with the Tao backend like this:

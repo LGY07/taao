@@ -64,6 +64,8 @@ event_loop.block_on_with_events(async |mut event| {
 })?;
 ```
 
+事件流包含后端各自提供的事件，Tao 和 winit 暴露的事件集合并不相同。驱动 Future 所用的内部 user event 不会传给调用方；Tao 还会过滤 `NewEvents`、`MainEventsCleared`、`RedrawEventsCleared` 和 `LoopDestroyed` 等循环阶段事件。
+
 `Event::submit` 可在事件循环线程上执行操作并异步取得结果。Tao 的闭包接收 `EventLoopWindowTarget` 和可变的 `ControlFlow`；winit 的闭包接收 `ActiveEventLoop`。例如，Tao 后端可以这样创建窗口：
 
 ```rust,ignore

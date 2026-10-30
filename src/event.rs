@@ -115,4 +115,22 @@ mod tests {
         assert_eq!(futures_lite::future::block_on(events.next()), Some(2));
         assert_eq!(futures_lite::future::block_on(events.next()), Some(3));
     }
+
+    #[test]
+    fn zero_capacity_is_clamped_to_one_and_keeps_the_newest_event() {
+        let (mut events, sender) = EventQueue::bounded(0);
+        sender.send(1);
+        sender.send(2);
+
+        assert_eq!(events.dropped_events(), 1);
+        assert_eq!(futures_lite::future::block_on(events.next()), Some(2));
+    }
+
+    #[test]
+    fn submit_error_has_a_stable_display_message() {
+        assert_eq!(
+            super::SubmitError.to_string(),
+            "the event loop stopped before the operation completed"
+        );
+    }
 }

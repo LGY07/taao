@@ -17,6 +17,9 @@ winit = ["dep:winit"]
 event = ["dep:async-channel", "dep:futures-lite"]
 tracing = ["dep:tracing"]
 
+[lints.rust]
+unsafe_code = "deny"
+
 [dependencies]
 async-channel = { version = "2", optional = true }
 futures-lite = { version = "2", optional = true }
