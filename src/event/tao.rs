@@ -1,3 +1,4 @@
+//! [`Event`] and [`EventKind`] for the Tao backend.
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -8,25 +9,43 @@ use tao::event_loop::{ControlFlow, EventLoopProxy, EventLoopWindowTarget};
 
 use super::{DEFAULT_EVENT_CAPACITY, EventQueue, EventQueueSender, SubmitError};
 
-/// An owned Tao event delivered by [`Event`].
+/// An event delivered by the Tao backend's event stream.
+///
+/// Events that taao uses internally to wake the future are consumed by the driver and
+/// never delivered. Loop-phase events without a useful payload for applications
+/// (`NewEvents`, `MainEventsCleared`, `RedrawEventsCleared`, `LoopDestroyed`) are excluded
+/// as well.
 #[derive(Debug)]
 pub enum EventKind {
-    /// An event that does not borrow data from its Tao callback.
+    /// A regular Tao event, converted to an owned `'static` value.
     Tao(tao::event::Event<'static, ()>),
-    /// A scale-factor event copied out of its callback-scoped size reference.
+    /// A window's scale factor changed.
+    ///
+    /// Tao reports this through [`tao::event::WindowEvent::ScaleFactorChanged`] with a
+    /// borrowed inner size, so taao surfaces it as a dedicated variant carrying an owned
+    /// suggested size.
     TaoScaleFactorChanged {
+        /// The window whose scale factor changed.
         window_id: tao::window::WindowId,
+        /// The new scale factor.
         scale_factor: f64,
+        /// The inner size Tao suggests for the window after the change.
         suggested_inner_size: PhysicalSize<u32>,
     },
 }
 
 pub(crate) type Operation = Box<dyn FnOnce(&EventLoopWindowTarget<()>, &mut ControlFlow)>;
 
-/// A bounded event stream and handle for submitting work to the Tao loop.
+/// Event stream and event-loop operation handle for the Tao backend.
 ///
-/// Use `futures_lite::StreamExt::next` to receive events. The event queue has a
-/// capacity of 256; the oldest queued event is replaced when it is full.
+/// This is the value handed to the future by
+/// [`block_on_with_events`](crate::EventLoopBlockOn::block_on_with_events). It implements
+/// [`futures_lite::Stream`] with item type [`EventKind`], yielding backend events as they
+/// arrive, and its [`submit`](Event::submit) method runs closures on the event-loop
+/// thread.
+///
+/// The stream is bounded; when the queue is full, a new event overwrites the oldest queued
+/// one. See [`dropped_events`](Event::dropped_events).
 pub struct Event {
     events: EventQueue<EventKind>,
     operations: Sender<Operation>,
@@ -50,12 +69,42 @@ impl Event {
         )
     }
 
-    /// Returns how many events were dropped because the bounded queue was full.
+    /// Returns the number of events overwritten so far because the queue was full.
     pub fn dropped_events(&self) -> usize {
         self.events.dropped_events()
     }
 
-    /// Runs an operation on Tao's event-loop thread and awaits its result.
+    /// Runs `operation` on the event-loop thread and asynchronously returns its result.
+    ///
+    /// The closure receives the [`EventLoopWindowTarget`] and the current [`ControlFlow`],
+    /// which makes this the supported way to create windows or change loop behaviour from
+    /// the future.
+    ///
+    /// Returns [`SubmitError`] when the event loop stops before the operation runs.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// use futures_lite::StreamExt;
+    /// use taao::EventLoopBlockOn;
+    ///
+    /// let mut event_loop = tao::event_loop::EventLoop::new();
+    /// event_loop.block_on_with_events(async |mut events| -> Result<(), Box<dyn std::error::Error>> {
+    ///     // Wait for the first event, then create a window on the event-loop thread.
+    ///     events.next().await;
+    ///     let window = events
+    ///         .submit(|target, _control_flow| tao::window::WindowBuilder::new().build(target))
+    ///         .await??;
+    ///     # let _ = window;
+    ///     Ok(())
+    /// })??;
+    /// # Ok(())
+    /// # }
+    /// # fn main() {
+    /// #     let _ = run();
+    /// # }
+    /// ```
     pub async fn submit<R: 'static>(
         &self,
         operation: impl FnOnce(&EventLoopWindowTarget<()>, &mut ControlFlow) -> R + 'static,

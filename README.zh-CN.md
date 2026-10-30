@@ -1,8 +1,8 @@
 # taao
 
-一个将 Rust 异步任务接入 tao 或 winit 事件循环的库。
+![Crates.io Version](https://img.shields.io/crates/v/taao) ![docs.rs](https://img.shields.io/docsrs/taao) ![Crates.io License](https://img.shields.io/crates/l/taao) [![Badge showing this repository's Rust code analysis](https://ferris.love/badge/LGY07/taao?variant=mini)](https://ferris.love/LGY07/taao)
 
-[English](README.md)
+一个将 Rust 异步任务接入 tao 或 winit 事件循环的库。
 
 ## 功能
 

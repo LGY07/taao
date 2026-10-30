@@ -1,3 +1,4 @@
+//! [`Event`] and [`EventKind`] for the winit backend.
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -7,19 +8,28 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 
 use super::{DEFAULT_EVENT_CAPACITY, EventQueue, EventQueueSender, SubmitError};
 
-/// An owned winit event delivered by [`Event`].
+/// An event delivered by the winit backend's event stream.
+///
+/// User events that taao uses internally to wake the future are consumed by the driver
+/// and never delivered.
 #[derive(Debug)]
 pub enum EventKind {
-    /// An event delivered by winit's application handler.
+    /// A regular winit application event.
     Winit(winit::event::Event<()>),
 }
 
 pub(crate) type Operation = Box<dyn FnOnce(&ActiveEventLoop)>;
 
-/// A bounded event stream and handle for submitting work to the winit loop.
+/// Event stream and event-loop operation handle for the winit backend.
 ///
-/// Use `futures_lite::StreamExt::next` to receive events. The event queue has a
-/// capacity of 256; the oldest queued event is replaced when it is full.
+/// This is the value handed to the future by
+/// [`block_on_with_events`](crate::EventLoopBlockOn::block_on_with_events). It implements
+/// [`futures_lite::Stream`] with item type [`EventKind`], yielding backend events as they
+/// arrive, and its [`submit`](Event::submit) method runs closures on the event-loop
+/// thread.
+///
+/// The stream is bounded; when the queue is full, a new event overwrites the oldest queued
+/// one. See [`dropped_events`](Event::dropped_events).
 pub struct Event {
     events: EventQueue<EventKind>,
     operations: Sender<Operation>,
@@ -43,12 +53,43 @@ impl Event {
         )
     }
 
-    /// Returns how many events were dropped because the bounded queue was full.
+    /// Returns the number of events overwritten so far because the queue was full.
     pub fn dropped_events(&self) -> usize {
         self.events.dropped_events()
     }
 
-    /// Runs an operation on winit's event-loop thread and awaits its result.
+    /// Runs `operation` on the event-loop thread and asynchronously returns its result.
+    ///
+    /// The closure receives the [`ActiveEventLoop`], which makes this the supported way to
+    /// create windows or change loop behaviour from the future.
+    ///
+    /// Returns [`SubmitError`] when the event loop stops before the operation runs.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # fn run() -> Result<(), Box<dyn std::error::Error>> {
+    /// use futures_lite::StreamExt;
+    /// use taao::EventLoopBlockOn;
+    ///
+    /// let mut event_loop = winit::event_loop::EventLoop::new()?;
+    /// event_loop.block_on_with_events(async |mut events| -> Result<(), Box<dyn std::error::Error>> {
+    ///     // Wait for the first event, then create a window on the event-loop thread.
+    ///     events.next().await;
+    ///     let window = events
+    ///         .submit(|event_loop| {
+    ///             event_loop.create_window(winit::window::WindowAttributes::default())
+    ///         })
+    ///         .await??;
+    ///     # let _ = window;
+    ///     Ok(())
+    /// })?;
+    /// # Ok(())
+    /// # }
+    /// # fn main() {
+    /// #     let _ = run();
+    /// # }
+    /// ```
     pub async fn submit<R: 'static>(
         &self,
         operation: impl FnOnce(&ActiveEventLoop) -> R + 'static,
