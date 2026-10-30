@@ -1,6 +1,9 @@
 # taao
 
-![Crates.io Version](https://img.shields.io/crates/v/taao) ![docs.rs](https://img.shields.io/docsrs/taao) ![Crates.io License](https://img.shields.io/crates/l/taao) [![Badge showing this repository's Rust code analysis](https://ferris.love/badge/LGY07/taao?variant=mini)](https://ferris.love/LGY07/taao)
+[![Crates.io Version](https://img.shields.io/crates/v/taao)](https://crates.io/crates/taao)
+[![docs.rs](https://img.shields.io/docsrs/taao)](https://docs.rs/taao)
+![Crates.io License](https://img.shields.io/crates/l/taao)
+[![Badge showing this repository's Rust code analysis](https://ferris.love/badge/LGY07/taao?variant=mini)](https://ferris.love/LGY07/taao)
 
 A crate for running Rust futures on a Tao or winit event-loop thread.
 
@@ -70,7 +73,9 @@ event_loop.block_on_with_events(async |mut event| {
 })?;
 ```
 
-The stream carries backend-specific event values; Tao and winit do not expose identical event sets. Internal user events used to wake the future are consumed by the driver and are not included. Tao also omits loop-phase events such as `NewEvents`, `MainEventsCleared`, `RedrawEventsCleared`, and `LoopDestroyed`.
+The stream carries backend-specific event values; Tao and winit do not expose identical event sets. Internal user events
+used to wake the future are consumed by the driver and are not included. Tao also omits loop-phase events such as
+`NewEvents`, `MainEventsCleared`, `RedrawEventsCleared`, and `LoopDestroyed`.
 
 `Event::submit` runs an operation on the event-loop thread and asynchronously returns its result. Tao passes an
 `EventLoopWindowTarget` and mutable `ControlFlow` to the closure; winit passes an `ActiveEventLoop`. For example, create
