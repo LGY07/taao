@@ -18,7 +18,7 @@ pub enum EventKind {
     Winit(winit::event::Event<()>),
 }
 
-pub(crate) type Operation = Box<dyn FnOnce(&ActiveEventLoop)>;
+pub(crate) type Operation = Box<dyn FnOnce(&ActiveEventLoop) + Send>;
 
 /// Event stream and event-loop operation handle for the winit backend.
 ///
@@ -63,6 +63,9 @@ impl Event {
     /// The closure receives the [`ActiveEventLoop`], which makes this the supported way to
     /// create windows or change loop behaviour from the future.
     ///
+    /// The operation and its return value must be `Send` so the handle can be moved
+    /// between threads while operations are queued for the event-loop thread.
+    ///
     /// Returns [`SubmitError`] when the event loop stops before the operation runs.
     ///
     /// # Example
@@ -90,9 +93,9 @@ impl Event {
     /// #     let _ = run();
     /// # }
     /// ```
-    pub async fn submit<R: 'static>(
+    pub async fn submit<R: Send + 'static>(
         &self,
-        operation: impl FnOnce(&ActiveEventLoop) -> R + 'static,
+        operation: impl FnOnce(&ActiveEventLoop) -> R + Send + 'static,
     ) -> Result<R, SubmitError> {
         let (reply_sender, reply_receiver) = async_channel::bounded(1);
         if self
