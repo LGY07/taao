@@ -6,8 +6,10 @@
 //! [`futures_core::Stream`](futures_lite::Stream)
 //! with item type [`EventKind`], yielding backend events as they arrive. Operations that
 //! must run on the event-loop thread — creating windows, changing control flow, etc. — can
-//! be submitted with [`Event::submit`] and are executed there, with the result sent back
-//! to the future.
+//! be submitted with [`Submitter::submit`] and are executed there, with the result sent back
+//! to the future. Use [`Event::submitter`] to obtain a cloneable [`EventSubmitter`]
+//! that can be moved into other tasks independently of the stream. Import [`Submitter`]
+//! to call `.submit(...)` on either type.
 //!
 //! The stream is bounded to 256 events; when it is full, each new event overwrites the
 //! oldest queued one. [`Event::dropped_events`] reports how many events have been
@@ -15,9 +17,9 @@
 //!
 //! # Re-exports
 //!
-//! This module re-exports [`Event`] and [`EventKind`] from [`winit`] **or** [`tao`] based on
-//! the enabled feature, at your convenience. You can always use `taao::event::Event`
-//! regardless of the backend.
+//! This module re-exports `Event`, `EventKind`, `EventSubmitter`, and `Submitter` from the
+//! selected backend module (`winit` or `tao`). You can always use `taao::event::Event`
+//! and `taao::event::Submitter` regardless of the backend.
 //!
 //! # Example
 //!
@@ -26,7 +28,7 @@
 //! # fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! use futures_lite::StreamExt;
 //! use taao::EventLoopBlockOn;
-//! use taao::event::EventKind;
+//! use taao::event::{EventKind, Submitter};
 //!
 //! let mut event_loop = tao::event_loop::EventLoop::new();
 //! event_loop.block_on_with_events(async |mut events| -> Result<(), Box<dyn std::error::Error>> {
@@ -70,14 +72,14 @@ pub mod tao;
 #[cfg(feature = "winit")]
 pub mod winit;
 
-// Docs.rs shows `Event` and `EventKind` from Tao
+// Docs.rs shows the public API re-exports from Tao.
 #[cfg(feature = "tao")]
-pub use tao::{Event, EventKind};
+pub use tao::{Event, EventKind, EventSubmitter, Submitter};
 
 #[cfg(all(feature = "winit", not(docsrs)))]
-pub use winit::{Event, EventKind};
+pub use winit::{Event, EventKind, EventSubmitter, Submitter};
 
-/// Error returned by [`Event::submit`] when the submitted operation cannot be completed.
+/// Error returned by [`Submitter::submit`] when the submitted operation cannot be completed.
 ///
 /// This happens when the event loop stops before the operation gets a chance to run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -77,11 +77,16 @@ The stream carries backend-specific event values; Tao and winit do not expose id
 used to wake the future are consumed by the driver and are not included. Tao also omits loop-phase events such as
 `NewEvents`, `MainEventsCleared`, `RedrawEventsCleared`, and `LoopDestroyed`.
 
-`Event::submit` runs an operation on the event-loop thread and asynchronously returns its result. Tao passes an
+Import `taao::event::Submitter` to call `.submit(...)` on either `Event` or `EventSubmitter`.
+Both types implement this trait, so helpers can accept `&impl Submitter`.
+
+`Submitter::submit` runs an operation on the event-loop thread and asynchronously returns its result. Tao passes an
 `EventLoopWindowTarget` and mutable `ControlFlow` to the closure; winit passes an `ActiveEventLoop`. For example, create
 a window with the Tao backend like this:
 
 ```rust,ignore
+use taao::event::Submitter;
+
 let window = event
     .submit(|target, _control_flow| {
         tao::window::WindowBuilder::new().build(target)
@@ -89,12 +94,36 @@ let window = event
     .await??;
 ```
 
+Use `let submitter = event.submitter()` before moving the stream into an event-handling task. It returns an owned,
+cloneable `EventSubmitter` with the same `submit` API, so other tasks or threads can submit operations while the stream
+is being polled. The handle remains usable after the stream is dropped, until the current `block_on_with_events` run
+ends. Submitting through a retained handle after that returns `SubmitError`.
+
+```rust,ignore
+use taao::event::Submitter;
+
+let submitter = event.submitter();
+let executor = async_executor::Executor::new();
+let window_task = executor.spawn(async move {
+    submitter
+        .submit(|target, _| tao::window::WindowBuilder::new().build(target))
+        .await
+        .expect("event loop stopped before creating the window")
+        .expect("failed to create window")
+});
+let window = executor.run(async move {
+    // Poll the stream while the other task submits window creation.
+    let first_event = event.next().await;
+    window_task.await
+}).await;
+```
+
 The event stream has a bounded capacity of 256. When full, a new event replaces the oldest queued event.
 `Event::dropped_events()` returns the number of events overwritten so far.
 
 If the event loop exits before the future completes, `block_on` and `block_on_with_events` return
 `BlockOnError::EventLoopExited`. If winit rejects the request to run its event loop, the method returns
-`BlockOnError::Backend`. If the event loop has stopped before a submitted operation can complete, `Event::submit`
+`BlockOnError::Backend`. If the event loop has stopped before a submitted operation can complete, `Submitter::submit`
 returns `SubmitError`.
 
 ## Features
@@ -103,7 +132,7 @@ returns `SubmitError`.
 |-----------|---------------------------------------------|---------|
 | `tao`     | Use the Tao backend                         | Yes     |
 | `winit`   | Use the winit backend                       | No      |
-| `event`   | Enable the event stream and `Event::submit` | No      |
+| `event`   | Enable the event stream and `Submitter::submit` | No      |
 | `tracing` | Enable diagnostic logging                   | No      |
 
 ## License

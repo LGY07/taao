@@ -32,9 +32,11 @@
 //!
 //! # Events and event-loop operations
 //!
-//! With the `event` feature, [`EventLoopBlockOn::block_on_with_events`] additionally hands
-//! the future an [`event::Event`]: a stream of backend events plus [`event::Event::submit`]
-//! for running closures on the event-loop thread. See the [`event`] module.
+//! With the `event` feature, `EventLoopBlockOn::block_on_with_events` additionally hands
+//! the future an `event::Event`: a stream of backend events plus `event::Submitter::submit`
+//! for running closures on the event-loop thread. Use `event::Event::submitter` to get
+//! a cloneable handle for submitting from separate tasks. Import `taao::event::Submitter`
+//! to call `.submit(...)` on either handle. See the `event` module.
 //!
 //! # Features
 //!
@@ -42,7 +44,7 @@
 //! |-----------|---------------------------------------------------------------------|---------|
 //! | `tao`     | Use the Tao backend                                                 | Yes     |
 //! | `winit`   | Use the winit backend                                               | No      |
-//! | `event`   | Enable the event stream and [`Event::submit`](event::Event::submit) | No      |
+//! | `event`   | Enable the event stream and `Submitter::submit`                       | No      |
 //! | `tracing` | Enable diagnostic logging                                           | No      |
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -68,8 +70,8 @@ use std::ops::AsyncFnOnce;
 ))]
 /// Extension trait that runs a future to completion on the backend's event-loop thread.
 ///
-/// Implemented for [`tao::event_loop::EventLoop<()>`](tao::event_loop::EventLoop) with the `tao` feature and for
-/// [`winit::event_loop::EventLoop<()>`](winit::event_loop::EventLoop) with the `winit` feature. Both implementations are
+/// Implemented for [`tao::event_loop::EventLoop<()>`](https://docs.rs/tao/0.37/tao/event_loop/struct.EventLoop.html) with the `tao` feature and for
+/// [`winit::event_loop::EventLoop<()>`](https://docs.rs/winit/0.30/winit/event_loop/struct.EventLoop.html) with the `winit` feature. Both implementations are
 /// unavailable on iOS, where the platform must drive the event loop, and the winit one is
 /// additionally unavailable for WebAssembly.
 pub trait EventLoopBlockOn {
@@ -108,7 +110,7 @@ pub trait EventLoopBlockOn {
     /// and additionally passes it an [`event::Event`] handle.
     ///
     /// The handle is a stream of backend events and provides
-    /// [`submit`](event::Event::submit) for running operations on the event-loop thread.
+    /// [`submit`](event::Submitter::submit) for running operations on the event-loop thread.
     /// See the [`event`] module.
     ///
     /// Requires the `event` feature.
