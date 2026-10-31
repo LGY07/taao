@@ -72,10 +72,15 @@ event_loop.block_on_with_events(async |mut event| {
 事件流包含后端各自提供的事件，Tao 和 winit 暴露的事件集合并不相同。驱动 Future 所用的内部 user event 不会传给调用方；Tao
 还会过滤 `NewEvents`、`MainEventsCleared`、`RedrawEventsCleared` 和 `LoopDestroyed` 等循环阶段事件。
 
-`Event::submit` 可在事件循环线程上执行操作并异步取得结果。Tao 的闭包接收 `EventLoopWindowTarget` 和可变的 `ControlFlow`
+导入 `taao::event::Submitter` 后，可在 `Event` 和 `EventSubmitter` 上调用 `.submit(...)`。
+两者都实现此 trait，公共函数可以用 `&impl Submitter` 接收它们。
+
+`Submitter::submit` 可在事件循环线程上执行操作并异步取得结果。Tao 的闭包接收 `EventLoopWindowTarget` 和可变的 `ControlFlow`
 ；winit 的闭包接收 `ActiveEventLoop`。例如，Tao 后端可以这样创建窗口：
 
 ```rust,ignore
+use taao::event::Submitter;
+
 let window = event
     .submit(|target, _control_flow| {
         tao::window::WindowBuilder::new().build(target)
@@ -83,10 +88,33 @@ let window = event
     .await??;
 ```
 
+将事件流移入处理任务前，可调用 `let submitter = event.submitter()` 获取独立拥有、可克隆的 `EventSubmitter`。
+它提供相同的 `submit` 接口，不借用事件流，因此其他任务或线程可以在事件流被轮询时提交操作。
+丢弃事件流后，该句柄仍可使用，直到当前 `block_on_with_events` 调用结束；之后通过保留的句柄提交会返回 `SubmitError`。
+
+```rust,ignore
+use taao::event::Submitter;
+
+let submitter = event.submitter();
+let executor = async_executor::Executor::new();
+let window_task = executor.spawn(async move {
+    submitter
+        .submit(|target, _| tao::window::WindowBuilder::new().build(target))
+        .await
+        .expect("event loop stopped before creating the window")
+        .expect("failed to create window")
+});
+let window = executor.run(async move {
+    // 轮询事件流，同时让另一个任务提交窗口创建操作。
+    let first_event = event.next().await;
+    window_task.await
+}).await;
+```
+
 事件流使用容量为 256 的有界队列。队列满时，新事件会覆盖最早的事件；`Event::dropped_events()` 返回累计覆盖数量。
 
 若事件循环先于 Future 结束，`block_on` 或 `block_on_with_events` 返回 `BlockOnError::EventLoopExited`。winit 拒绝运行事件循环时会返回
-`BlockOnError::Backend`。若提交操作时事件循环已经停止，`Event::submit` 返回 `SubmitError`。
+`BlockOnError::Backend`。若提交操作时事件循环已经停止，`Submitter::submit` 返回 `SubmitError`。
 
 ## Feature
 
@@ -94,7 +122,7 @@ let window = event
 |-----------|------------------------|----|
 | `tao`     | 使用 Tao 后端              | 是  |
 | `winit`   | 使用 winit 后端            | 否  |
-| `event`   | 启用事件流和 `Event::submit` | 否  |
+| `event`   | 启用事件流和 `Submitter::submit` | 否  |
 | `tracing` | 启用诊断日志                 | 否  |
 
 ## 许可证

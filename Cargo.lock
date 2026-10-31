@@ -2226,7 +2226,7 @@ dependencies = [
 
 [[package]]
 name = "taao"
-version = "0.1.3-dev"
+version = "0.1.3"
 dependencies = [
  "async-channel",
  "async-executor",

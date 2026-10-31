@@ -5,8 +5,49 @@ use std::task::{Context, Poll};
 #[cfg(feature = "event")]
 use futures_lite::StreamExt;
 use taao::EventLoopBlockOn;
+#[cfg(feature = "event")]
+use taao::event::Submitter;
+
+#[cfg(feature = "event")]
+async fn submit_value(submitter: &impl Submitter) -> Result<usize, taao::event::SubmitError> {
+    #[cfg(feature = "tao")]
+    return submitter.submit(|_, _| 42).await;
+    #[cfg(feature = "winit")]
+    return submitter.submit(|_| 42).await;
+}
 
 struct WakeFromThread(bool);
+
+#[cfg(feature = "event")]
+fn assert_pending_submissions_resolve_when_run_ends(event_loop: &mut impl EventLoopBlockOn) {
+    let pending = event_loop
+        .block_on_with_events(async |event| {
+            let mut pending = Vec::new();
+            // Fill the 64-operation queue and leave one submission waiting for capacity.
+            // Backends may still execute queued operations during their final callbacks.
+            for _ in 0..65 {
+                let submitter = event.submitter();
+                let mut submission = Box::pin(async move { submit_value(&submitter).await });
+                assert!(
+                    futures_lite::future::poll_once(submission.as_mut())
+                        .await
+                        .is_none()
+                );
+                pending.push(submission);
+            }
+            pending
+        })
+        .unwrap();
+    for (index, submission) in pending.into_iter().enumerate() {
+        let result = futures_lite::future::block_on(submission);
+        if index == 64 {
+            // This submission was waiting for capacity and was never enqueued.
+            assert_eq!(result, Err(taao::event::SubmitError));
+        } else {
+            assert!(matches!(result, Ok(42) | Err(taao::event::SubmitError)));
+        }
+    }
+}
 
 impl Future for WakeFromThread {
     type Output = usize;
@@ -74,34 +115,68 @@ fn tao_event_loop_wakes_futures_and_runs_submitted_operations() {
     assert_eq!(event_loop.block_on(WakeFromThread(false)).unwrap(), 42);
 
     #[cfg(feature = "event")]
+    assert_pending_submissions_resolve_when_run_ends(&mut event_loop);
+
+    #[cfg(feature = "event")]
     assert!(
         event_loop
             .block_on_with_events(async |mut event| {
                 let caller_thread = std::thread::current().id();
-                let (window, ran_on_event_loop_thread) = event
-                    .submit(move |target, _control_flow| {
-                        (
-                            tao::window::WindowBuilder::new().build(target).unwrap(),
-                            std::thread::current().id() == caller_thread,
-                        )
-                    })
-                    .await
-                    .unwrap();
-                let got_window_event = loop {
-                    match event.next().await {
-                        Some(taao::event::EventKind::Tao(tao::event::Event::WindowEvent {
-                            ..
-                        }))
-                        | Some(taao::event::EventKind::TaoScaleFactorChanged { .. }) => break true,
-                        Some(_) => continue,
-                        None => break false,
+                let submitter = event.submitter();
+                let worker_submitter = submitter.clone();
+                drop(submitter);
+                let (result_sender, result_receiver) = async_channel::bounded(1);
+                let worker = std::thread::spawn(move || {
+                    let result = futures_lite::future::block_on(worker_submitter.submit(
+                        move |target, _control_flow| {
+                            (
+                                tao::window::WindowBuilder::new().build(target).unwrap(),
+                                std::thread::current().id() == caller_thread,
+                            )
+                        },
+                    ));
+                    result_sender.send_blocking(result).unwrap();
+                });
+                let receive_events = async move {
+                    loop {
+                        match event.next().await {
+                            Some(taao::event::EventKind::Tao(tao::event::Event::WindowEvent {
+                                ..
+                            }))
+                            | Some(taao::event::EventKind::TaoScaleFactorChanged { .. }) => {
+                                break true;
+                            }
+                            Some(_) => continue,
+                            None => break false,
+                        }
                     }
                 };
+                let (result, got_window_event) =
+                    futures_lite::future::zip(result_receiver.recv(), receive_events).await;
+                let (window, ran_on_event_loop_thread) = result.unwrap().unwrap();
+                worker.join().unwrap();
                 drop(window);
                 ran_on_event_loop_thread && got_window_event
             })
             .unwrap()
     );
+
+    #[cfg(feature = "event")]
+    {
+        let submitter = event_loop
+            .block_on_with_events(async |event| {
+                let submitter = event.submitter();
+                assert_eq!(submit_value(&event).await, Ok(42));
+                drop(event);
+                assert_eq!(submit_value(&submitter).await, Ok(42));
+                submitter
+            })
+            .unwrap();
+        assert_eq!(
+            futures_lite::future::block_on(submitter.submit(|_, _| ())),
+            Err(taao::event::SubmitError)
+        );
+    }
 
     #[cfg(feature = "event")]
     assert_eq!(
@@ -125,35 +200,67 @@ fn winit_event_loop_wakes_futures_and_runs_submitted_operations() {
     assert_eq!(event_loop.block_on(WakeFromThread(false)).unwrap(), 42);
 
     #[cfg(feature = "event")]
+    assert_pending_submissions_resolve_when_run_ends(&mut event_loop);
+
+    #[cfg(feature = "event")]
     assert!(
         event_loop
             .block_on_with_events(async |mut event| {
                 let caller_thread = std::thread::current().id();
-                let (window, ran_on_event_loop_thread) = event
-                    .submit(move |event_loop| {
-                        (
-                            event_loop
-                                .create_window(winit::window::Window::default_attributes())
-                                .unwrap(),
-                            std::thread::current().id() == caller_thread,
-                        )
-                    })
-                    .await
-                    .unwrap();
-                let got_window_event = loop {
-                    match event.next().await {
-                        Some(taao::event::EventKind::Winit(winit::event::Event::WindowEvent {
-                            ..
-                        })) => break true,
-                        Some(_) => continue,
-                        None => break false,
+                let submitter = event.submitter();
+                let worker_submitter = submitter.clone();
+                drop(submitter);
+                let (result_sender, result_receiver) = async_channel::bounded(1);
+                let worker = std::thread::spawn(move || {
+                    let result = futures_lite::future::block_on(worker_submitter.submit(
+                        move |event_loop| {
+                            (
+                                event_loop
+                                    .create_window(winit::window::Window::default_attributes())
+                                    .unwrap(),
+                                std::thread::current().id() == caller_thread,
+                            )
+                        },
+                    ));
+                    result_sender.send_blocking(result).unwrap();
+                });
+                let receive_events = async move {
+                    loop {
+                        match event.next().await {
+                            Some(taao::event::EventKind::Winit(
+                                winit::event::Event::WindowEvent { .. },
+                            )) => break true,
+                            Some(_) => continue,
+                            None => break false,
+                        }
                     }
                 };
+                let (result, got_window_event) =
+                    futures_lite::future::zip(result_receiver.recv(), receive_events).await;
+                let (window, ran_on_event_loop_thread) = result.unwrap().unwrap();
+                worker.join().unwrap();
                 drop(window);
                 ran_on_event_loop_thread && got_window_event
             })
             .unwrap()
     );
+
+    #[cfg(feature = "event")]
+    {
+        let submitter = event_loop
+            .block_on_with_events(async |event| {
+                let submitter = event.submitter();
+                assert_eq!(submit_value(&event).await, Ok(42));
+                drop(event);
+                assert_eq!(submit_value(&submitter).await, Ok(42));
+                submitter
+            })
+            .unwrap();
+        assert_eq!(
+            futures_lite::future::block_on(submitter.submit(|_| ())),
+            Err(taao::event::SubmitError)
+        );
+    }
 
     #[cfg(feature = "event")]
     assert_eq!(
