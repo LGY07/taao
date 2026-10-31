@@ -132,6 +132,8 @@ impl Event {
         if let Err(error) = self.proxy.send_event(()) {
             #[cfg(feature = "tracing")]
             tracing::error!(target: "taao::event", backend = "tao", %error, "failed to wake event loop for submitted operation");
+            #[cfg(not(feature = "tracing"))]
+            let _ = error;
             return Err(SubmitError);
         }
         reply_receiver.recv().await.map_err(|_| SubmitError)
